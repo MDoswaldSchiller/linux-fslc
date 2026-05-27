@@ -139,12 +139,11 @@ static int get_path_from_fd(int fd, struct path *root)
 		path_get(root);
 		spin_unlock(&fs->lock);
 	} else {
-		struct fd f = fdget(fd);
-		if (!fd_file(f))
+		CLASS(fd, f)(fd);
+		if (fd_empty(f))
 			return -EBADF;
 		*root = fd_file(f)->f_path;
 		path_get(root);
-		fdput(f);
 	}
 
 	return 0;
@@ -175,6 +174,14 @@ static int vfs_dentry_acceptable(void *context, struct dentry *dentry)
 	/* Old permission model with global CAP_DAC_READ_SEARCH. */
 	if (!ctx->flags)
 		return 1;
+
+	/*
+	 * Verify that the decoded dentry itself has a valid id mapping.
+	 * In case the decoded dentry is the mountfd root itself, this
+	 * verifies that the mountfd inode itself has a valid id mapping.
+	 */
+	if (!privileged_wrt_inode_uidgid(user_ns, idmap, d_inode(dentry)))
+		return 0;
 
 	/*
 	 * It's racy as we're not taking rename_lock but we're able to ignore
